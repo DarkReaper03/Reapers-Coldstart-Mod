@@ -41,6 +41,11 @@ local misfireWindowSeconds = 30 -- cold misfires fade out over this much running
 local misfireCutSeconds = 0.04 -- one stumble: a short ignition cut (x misfireStrength)
 local clickShowSeconds = 3 -- the HUD shows the click this long
 local clickMessageSeconds = 8 -- shortest time between two "battery flat" messages
+-- starting fluid (0.9.0): ether in the intake fires at a much slower crank, and needs no glow-plug
+-- preheat; a spray lasts this long
+local etherSeconds = 15
+local etherBonus = 0.2 -- taken off the share of stock cranking speed it needs to fire
+local etherFloor = 0.12 -- ...but it still needs the engine turning at least this share
 
 local handle = nil -- adapter engine handle (combustion engines only)
 local fx = nil -- effects for that engine
@@ -79,7 +84,11 @@ M.state = {
   runSeconds = 0, -- running since the last start
   misfireRate = 0, -- cold stumbles per second right now
   misfires = 0, -- stumbles since the last start
+  etherSeconds = 0, -- > 0 while sprayed starting fluid is still in the intake (0.9.0)
 }
+
+local carEffectsOff = false -- the player switched the cold-start effects off for this car (0.9.0)
+local switchedOff -- (defined below: gives every engine field back to the game)
 
 local function resetRunState()
   local state = M.state
@@ -89,16 +98,37 @@ local function resetRunState()
   state.dragMultiplier, state.misfireRate, state.runSeconds, state.misfires = 1, 0, 0, 0
 end
 
+-- What depends on the car's setup (models/defaults.lua forProfile): the starter, diesel or not, the
+-- oil grade, the system voltage. Called by init, and again when the player changes the car's setup
+-- (0.9.0), which must not reset anything else (a running engine isn't re-soaked).
+function M.setParams(profile, params)
+  starter = params and params.starter and electrical.newStarter(params.starter) or nil
+  diesel = (params and params.fuel or profile.fuel) == "diesel"
+  -- cold cranking resistance and cold drag compare the oil in the engine with the oil the engine is
+  -- built for (its auto grade): the same as before for the auto oil, easier on a thinner winter oil,
+  -- harder on a thick one (0.9.0; measured against the oil's own viscosity a 0W-20 barely helped)
+  local oilParams = params and params.oil or {}
+  local design = oilParams.designGrade or oilParams.grade
+  local grade = design and oilModel.grades[design]
+  oilV40 = grade and grade.v40 or 62
+  oilVHot = oilModel.viscosityCurve(grade and design or oilModel.defaultGrade)(90)
+  nominalV = params and params.voltage or 12
+  M.setCarEffects(not (params and params.effects == false))
+end
+
+-- The player's per-car switch (0.9.0): false keeps this car stock (the gauges keep working), on top
+-- of the preset and the session switch.
+function M.setCarEffects(on)
+  carEffectsOff = on == false
+  M.options.enabled = M.options.effects ~= false and M.options.sessionOn ~= false and not carEffectsOff
+  if not M.options.enabled then switchedOff() end
+end
+
 function M.init(engineHandle, profile, params)
   handle = engineHandle and engineHandle.isCombustion and engineHandle or nil
   fx = handle and effectsLib.new(handle.device) or nil
-  starter = params and params.starter and electrical.newStarter(params.starter) or nil
-  diesel = profile.fuel == "diesel"
-  local gradeName = params and params.oil and params.oil.grade
-  local grade = gradeName and oilModel.grades[gradeName]
-  oilV40 = grade and grade.v40 or 62
-  oilVHot = oilModel.viscosityCurve(gradeName or oilModel.defaultGrade)(90)
-  nominalV = params and params.voltage or 12
+  M.state.etherSeconds = 0
+  M.setParams(profile, params)
   spawnHandled = false
   savedTemps = nil
   M.state.spawnSoaked = false
@@ -208,10 +238,15 @@ local function updateStarter(dt, engine, s, blockC, holdSeconds)
   state.holdReason = nil
   if engine.cranking and M.options.startFailures and stockAV then
     local fraction = starting.firingFraction(diesel, blockC) + (M.options.firingBonus or 0)
+    local ether = state.etherSeconds > 0 -- starting fluid in the intake (0.9.0)
+    if ether then
+      fraction = max(fraction - etherBonus, etherFloor)
+      crank.ether = true
+    end
     state.fireRPM = stockAV * avToRPM * fraction
     if (engine.rpm or 0) < state.fireRPM then
       state.holdReason = "too slow"
-    elseif diesel and s.glowPct ~= nil and s.glowPct < starting.glowRequired(blockC) then
+    elseif diesel and not ether and s.glowPct ~= nil and s.glowPct < starting.glowRequired(blockC) then
       state.holdReason = "glow plugs"
     elseif s.batteryV and s.batteryV < starting.brownoutV * nominalV / 12 then
       state.holdReason = "voltage"
@@ -378,7 +413,7 @@ local function updateMisfires(dt, engine, s, background)
   end
 end
 
-local function switchedOff()
+function switchedOff()
   if fx then fx:restoreAll() end
   clearStarterCutout()
   local state = M.state
@@ -409,6 +444,7 @@ function M.update(dt, engine, s, ambientC, holdSeconds, background)
   end
 
   dt = dt or 0
+  M.state.etherSeconds = max(M.state.etherSeconds - dt, 0)
   local blockC = s.blockC or ambientC or 20
   updateDrag(s)
   if updateFlatBattery(dt, engine, s) then
@@ -439,6 +475,7 @@ function M.crankReport()
     preset = M.preset, starterHeat = round(state.starterHeat, 0.1), starterCutout = state.starterCutout or nil,
     dragMultiplier = round(state.dragMultiplier, 0.01), misfires = state.misfires,
     clicked = c.clicked, -- the battery was too flat to turn the starter
+    ether = c.ether, -- starting fluid helped this crank (0.9.0)
   }
 end
 
@@ -503,15 +540,38 @@ function M.configure(presetName, effectsOn, overrides)
       end
     end
   end
-  options.enabled = effectsOn ~= false and options.effects
+  options.sessionOn = effectsOn ~= false
+  options.enabled = options.sessionOn and options.effects and not carEffectsOff
   M.options = options
   if not options.enabled then switchedOff() end
 end
 
 -- Effects on or off without changing the preset (console helper; stock behaviour for comparison).
+-- The per-car switch (setCarEffects) still applies.
 function M.setEnabled(enabled)
-  M.options.enabled = enabled ~= false and M.options.effects ~= false
+  M.options.sessionOn = enabled ~= false
+  M.options.enabled = M.options.sessionOn and M.options.effects ~= false and not carEffectsOff
   if not M.options.enabled then switchedOff() end
+end
+
+function M.carEffectsOn()
+  return not carEffectsOff
+end
+
+-- Starting fluid (0.9.0): a spray of ether into the air intake. For the next etherSeconds the engine
+-- fires at a much slower crank (deep cold, a weak battery) and a diesel needs no glow-plug preheat.
+-- s: sim.state. Returns true and a message, or false and why not.
+function M.sprayStartingFluid(s)
+  if not handle then return false, "Starting fluid: this vehicle has no combustion engine." end
+  if not M.options.enabled then
+    return false, "Starting fluid: not needed, the cold-start effects are off for this car."
+  end
+  M.state.etherSeconds = etherSeconds
+  if diesel and s and (s.glowState == "preheat" or s.glowState == "crank" or s.glowState == "afterglow"
+    or (s.glowPct or 0) > 0.5) then
+    return true, "Starting fluid sprayed, with the glow plugs hot! Ether can pre-ignite on them and wreck a diesel."
+  end
+  return true, string.format("Starting fluid sprayed into the intake: crank within %d s.", etherSeconds)
 end
 
 -- put every stock value back (extension unload)

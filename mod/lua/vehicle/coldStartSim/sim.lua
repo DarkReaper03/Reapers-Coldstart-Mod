@@ -49,9 +49,10 @@ local function engineTemperatures(dt, engine, e, ambientC, running, s)
   end
 end
 
--- profile: from profile.lua; ambientC: outside air at spawn (starting temperature of everything)
-function M.init(profile, ambientC)
-  params = defaults.forProfile(profile)
+-- profile: from profile.lua; ambientC: outside air at spawn (starting temperature of everything);
+-- setup: the player's per-car setup (coldStartSim/carsetup.lua), nil for auto
+function M.init(profile, ambientC, setup)
+  params = defaults.forProfile(profile, setup)
   isCombustion = profile.kind == "ice"
   thermalsLive = profile.thermals == "stock"
   estimate = nil
@@ -75,11 +76,53 @@ function M.init(profile, ambientC)
   return params
 end
 
+-- A new per-car setup on a car that is already running the models (0.9.0): new parameters, same
+-- state. The battery keeps its charge, temperature and jump leads, the oil its pressure (a new
+-- grade is an oil change, not a drop to zero), the glow plugs their heat, the cabin and intake air
+-- their temperatures. Returns the new params.
+local glowFields = {"state", "timer", "preheatTarget", "preheatFraction", "afterglowLeft", "lastIgnition", "readyFor", "wait"}
+function M.reconfigure(profile, setup)
+  if not params then return nil end
+  params = defaults.forProfile(profile, setup)
+  local old = battery
+  battery = batteryModel.new({
+    voltage = params.battery.voltage, capacityAh = params.battery.capacityAh, cca = params.battery.cca,
+    alternatorA = params.battery.alternatorA, soc = old.soc, tempC = old.tempC,
+  })
+  if old.jump then battery:connectJumpLeads(true) end
+  battery.voltage = old.voltage
+  if isCombustion then
+    local oldOil = oil
+    oil = oilModel.new(params.oil)
+    if oldOil then oil.pressureKPa, oil.targetKPa = oldOil.pressureKPa, oldOil.targetKPa end
+    starter = electrical.newStarter(params.starter)
+    local oldGlow = glow
+    glow = params.glow and glowModel.new(params.glow) or nil
+    if glow and oldGlow then
+      for _, key in ipairs(glowFields) do glow[key] = oldGlow[key] end
+    end
+  end
+  return params
+end
+
+-- The glow-plug cycle (0.9.0): preheat again with the key on. Returns the seconds it takes, or nil.
+function M.glowCycle()
+  if not glow then return nil end
+  return glow:cycle(M.state.blockC)
+end
+
+-- A new battery (0.9.0): fully charged, at the temperature the old one had (it sat in the same cold).
+function M.newBattery()
+  if battery then battery.soc = 1 end
+end
+
+M.warmerRiseC = 25 -- a battery warmer pad (~80 W) holds the battery about this much above outside air
+
 -- engine: adapter.readEngine() output for the primary engine (nil for vehicles without one)
 -- e: adapter.readElectrics() output; ambientC, baroKPa: environment
 -- starterOverrideA: starter current from the cold-start logic (coldstart.lua); nil = estimate it
 -- from the stock starter
--- external: what's plugged in (services.lua electrical()): {chargerA, chargeSpeed, jump}
+-- external: what's plugged in (services.lua electrical()): {chargerA, chargeSpeed, jump, warmer}
 function M.update(dt, engine, e, ambientC, baroKPa, starterOverrideA, external)
   if not params or dt <= 0 then return end
   local s = M.state
@@ -114,12 +157,18 @@ function M.update(dt, engine, e, ambientC, baroKPa, starterOverrideA, external)
     starterA = starter:currentA(cranking, rpm, engine.starterMaxRPM)
   end
 
-  -- battery sits in the engine bay: it warms with the engine and cools toward outside air
+  -- battery sits in the engine bay: it warms with the engine and cools toward outside air; a battery
+  -- warmer (0.9.0) holds it warmer, at the service speed like the block heater
   local bayC = ambientC + 0.3 * max((block or ambientC) - ambientC, 0)
+  local envSpeed = 1
+  if external and external.warmer then
+    bayC = max(bayC, ambientC + M.warmerRiseC)
+    envSpeed = external.chargeSpeed or 1
+  end
   local jump = external ~= nil and external.jump == true
   if jump ~= (battery.jump ~= nil) then battery:connectJumpLeads(jump) end
   local chargerA = external and external.chargerA or 0
-  battery:update(dt, loadA + glowA + starterA, rpm, bayC, chargerA, external and external.chargeSpeed or 1)
+  battery:update(dt, loadA + glowA + starterA, rpm, bayC, chargerA, external and external.chargeSpeed or 1, envSpeed)
   -- the battery as the starter sees it: coldstart.lua solves the starter's current against it
   local supplyV, supplyR = battery:thevenin()
   local otherA = loadA + glowA - chargerA - battery:alternatorAvailableA(rpm)
@@ -153,6 +202,7 @@ function M.update(dt, engine, e, ambientC, baroKPa, starterOverrideA, external)
 
   -- outputs (°C, kPa, V, A)
   s.nominalV = params.voltage
+  s.batteryCCA, s.batteryAh = battery.cca, battery.capacityAh
   s.batteryV = battery.voltage
   s.batterySoc = battery.soc
   s.batteryA = battery.currentA

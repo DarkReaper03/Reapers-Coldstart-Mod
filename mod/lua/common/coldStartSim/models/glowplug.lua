@@ -4,10 +4,16 @@
 -- seconds and the "wait to start" light is on meanwhile. They stay on while cranking a cold
 -- engine and keep glowing at reduced power after the start (afterglow), which cuts misfires and
 -- white smoke. preheatFraction tells the starting logic (Phase 3) how much preheat was done.
+-- Since 0.9.0, once the light is out the plugs switch off: wait more than readyHoldSeconds without
+-- cranking and they cool down again (like a real controller), so you cycle them again: key off and
+-- on, or Glow:cycle() (the "glow-plug cycle" action).
 
 local M = {}
 
 local max, min = math.max, math.min
+
+M.readyHoldSeconds = 10 -- after the light goes out the plugs stay hot this long, then cool (0.9.0)
+M.coolSeconds = 30 -- a hot plug's preheat is gone after about this long switched off
 
 function M.preheatSeconds(blockC)
   return min(max(2 + 0.25 * (10 - blockC), 0), 15)
@@ -45,11 +51,11 @@ function Glow:update(dt, ignitionLevel, cranking, running, blockC)
 
   if ignitionLevel < 2 then
     self.state, self.currentA, self.wait, self.timer = "off", 0, false, 0
-    self.preheatFraction = max(self.preheatFraction - dt / 30, 0) -- plugs cool off
+    self.preheatFraction = max(self.preheatFraction - dt / M.coolSeconds, 0) -- plugs cool off
   else
     if self.lastIgnition < 2 and not running then
       self.preheatTarget = M.preheatSeconds(blockC)
-      self.timer = 0
+      self.timer, self.readyFor = 0, 0
       self.state = self.preheatTarget > 0 and "preheat" or "ready"
       if self.preheatTarget <= 0 then self.preheatFraction = 1 end
     end
@@ -80,7 +86,13 @@ function Glow:update(dt, ignitionLevel, cranking, running, blockC)
       if self.state == "preheat" then
         self.timer = self.timer + dt
         self.preheatFraction = self.preheatTarget > 0 and min(self.timer / self.preheatTarget, 1) or 1
-        if self.timer >= self.preheatTarget then self.state = "ready" end
+        if self.timer >= self.preheatTarget then self.state, self.readyFor = "ready", 0 end
+      elseif self.state == "ready" then
+        -- the light is out: the plugs stay hot for a while, then switch off and cool
+        self.readyFor = (self.readyFor or 0) + dt
+        if self.readyFor > M.readyHoldSeconds then
+          self.preheatFraction = max(self.preheatFraction - dt / M.coolSeconds, 0)
+        end
       end
       self.currentA = self.state == "preheat" and full or 0
       self.wait = self.state == "preheat"
@@ -89,6 +101,24 @@ function Glow:update(dt, ignitionLevel, cranking, running, blockC)
 
   self.lastIgnition = ignitionLevel
   return self.currentA
+end
+
+-- The glow-plug cycle (0.9.0): preheat again with the key on, carrying on from the heat the plugs
+-- still have. Returns the seconds of preheat it will take, or nil when it can't (key not on, engine
+-- running or cranking).
+function Glow:cycle(blockC)
+  if self.lastIgnition < 2 or self.state == "crank" or self.state == "afterglow" or self.state == "done" then
+    return nil
+  end
+  self.preheatTarget = M.preheatSeconds(blockC or 20)
+  if self.preheatTarget <= 0 then
+    self.state, self.preheatFraction, self.readyFor = "ready", 1, 0
+    return 0
+  end
+  self.timer = self.preheatFraction * self.preheatTarget
+  self.state = "preheat"
+  self.readyFor = 0
+  return self.preheatTarget - self.timer
 end
 
 return M

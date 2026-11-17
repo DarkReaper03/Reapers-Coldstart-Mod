@@ -42,12 +42,82 @@
             <BngButton :accent="car.jump ? 'main' : 'secondary'" @click="action('jumpLeads')">{{ car.jump ? "Disconnect" : "Connect" }}</BngButton>
           </div>
           <div class="csset-row">
+            <span class="csset-label">Battery warmer<em v-if="car.warmer"> · plugged in</em></span>
+            <BngButton :accent="car.warmer ? 'main' : 'secondary'" @click="action('batteryWarmer')">{{ car.warmer ? "Unplug" : "Plug in" }}</BngButton>
+          </div>
+          <div class="csset-row">
             <span class="csset-label">Warning lights</span>
             <BngButton accent="secondary" @click="action('ackWarnings')">Acknowledge all</BngButton>
           </div>
-          <p class="csset-hint">Drive off with anything still connected and it comes loose. Block heaters and chargers work
-            {{ settings.sim.serviceSpeed }}× faster than real time (Simulation tab). Keybinds: Options → Controls → Vehicle →
-            "ColdStart Sim: …".</p>
+          <p class="csset-hint">Drive off with anything still connected and it comes loose. Block heaters, chargers and battery
+            warmers work {{ settings.sim.serviceSpeed }}× faster than real time (Simulation tab). Keybinds: Options → Controls →
+            Vehicle → "ColdStart Sim: …".</p>
+
+          <template v-if="car.kind === 'ice'">
+            <h3 class="csset-sub">Starting aids</h3>
+            <div class="csset-row">
+              <span class="csset-label">Starting fluid<em v-if="car.ether"> · in the intake, {{ car.ether }} s</em></span>
+              <BngButton accent="secondary" @click="action('startingFluid')">Spray</BngButton>
+            </div>
+            <div v-if="car.fuel === 'diesel'" class="csset-row">
+              <span class="csset-label">Glow plugs<em v-if="car.glow && car.glow.wait"> · preheating</em></span>
+              <BngButton accent="secondary" @click="action('glowCycle')">Preheat again</BngButton>
+            </div>
+            <p class="csset-hint">Ether lets an engine that cranks too slowly fire, for 15 s after the spray. Never with hot glow
+              plugs on a diesel. Glow plugs cool down again if you wait too long after the light goes out: preheat again
+              (key on).</p>
+          </template>
+
+          <h3 class="csset-sub">Garage</h3>
+          <div class="csset-row">
+            <span class="csset-label">Battery<em v-if="car.battCCA"> · {{ Math.round(car.battCCA) }} CCA</em></span>
+            <BngButton accent="secondary" @click="action('newBattery')">Fit a new battery</BngButton>
+          </div>
+          <template v-if="carSetup">
+            <div v-if="car.kind === 'ice'" class="csset-row">
+              <span class="csset-label">Oil (change it)</span>
+              <BngDropdown class="csset-control" :model-value="setupValue('oilGrade')" :items="setupItems('oilGrade', carSetup.auto.oilGrade)"
+                @update:modelValue="v => changeSetup('oilGrade', v)" />
+            </div>
+
+            <h3 class="csset-sub">This car's setup</h3>
+            <div class="csset-row">
+              <span class="csset-label">Battery size</span>
+              <BngDropdown class="csset-control" :model-value="setupValue('battery')"
+                :items="setupItems('battery', carSetup.auto.cca + ' CCA')" @update:modelValue="v => changeSetup('battery', v)" />
+            </div>
+            <div class="csset-row">
+              <span class="csset-label">System voltage</span>
+              <BngDropdown class="csset-control" :model-value="setupValue('voltage')" :items="setupItems('voltage', carSetup.auto.voltage + ' V')"
+                @update:modelValue="v => changeSetup('voltage', v)" />
+            </div>
+            <template v-if="car.kind === 'ice'">
+              <div class="csset-row">
+                <span class="csset-label">Fuel</span>
+                <BngDropdown class="csset-control" :model-value="setupValue('fuel')" :items="setupItems('fuel', carSetup.auto.fuel)"
+                  @update:modelValue="v => changeSetup('fuel', v)" />
+              </div>
+              <div v-if="carSetup.current.fuel === 'diesel'" class="csset-row">
+                <span class="csset-label">Glow plugs</span>
+                <BngDropdown class="csset-control" :model-value="setupValue('glowPlugs')"
+                  :items="setupItems('glowPlugs', carSetup.auto.glowPlugs ? 'glow plugs' : 'none')" @update:modelValue="v => changeSetup('glowPlugs', v)" />
+              </div>
+              <div class="csset-row">
+                <span class="csset-label">Block heater power</span>
+                <BngDropdown class="csset-control" :model-value="setupValue('heaterWatts')" :items="carSetup.choices.heaterWatts"
+                  @update:modelValue="v => changeSetup('heaterWatts', v)" />
+              </div>
+              <div class="csset-row">
+                <BngSwitch :model-value="setupValue('effects')" label="Cold-start effects on this car"
+                  @update:modelValue="v => changeSetup('effects', v)" />
+              </div>
+            </template>
+            <BngButton accent="secondary" class="csset-button" @click="resetSetup">Back to this car's own values</BngButton>
+            <p class="csset-hint">Saved for this model and config ({{ carSetup.key }}) and used every time it spawns. "Auto"
+              is what the mod worked out from the engine (or the car modder's settings). Now:
+              {{ carSetup.current.oilGrade || "—" }}, {{ carSetup.current.cca }} CCA / {{ carSetup.current.capacityAh }} Ah,
+              {{ carSetup.current.voltage }} V, {{ carSetup.current.fuel || "—" }}.</p>
+          </template>
         </template>
         <p v-else class="csset-hint">Sit in a car to see it here.</p>
       </section>
@@ -216,7 +286,7 @@
 // ColdStart Sim settings screen (pause menu → Mods → ColdStart Sim). Everything is stored by the
 // game-engine side (lua/ge/extensions/coldStartSim/main.lua, settings/coldStartSim/settings.json);
 // this card reads the schema and settings from it and sends each change back.
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useBridge } from "@/bridge"
 import { useEvents, useStreams } from "@/services/events"
 import { BngButton, BngDropdown, BngSlider, BngSwitch } from "@/common/components/base"
@@ -282,11 +352,67 @@ function fmt(value, decimals) {
 
 // The car carries out the action once the game runs (it's usually paused while this menu is
 // open), so the button flips straight away; the car's stream confirms it when the game resumes.
-const ACTION_FIELDS = { blockHeater: "heater", charger: "charger", jumpLeads: "jump" }
+const ACTION_FIELDS = { blockHeater: "heater", charger: "charger", jumpLeads: "jump", batteryWarmer: "warmer" }
 function action(name) {
   callGE("vehicleAction", name).catch(err => console.error(err))
   const field = ACTION_FIELDS[name]
   if (field && car.value) car.value = { ...car.value, [field]: !car.value[field] }
+}
+
+// This car's setup (0.9.0): saved per model/config by the game-engine side (getCarSetup/setCarSetup).
+const carSetup = ref(null)
+function normalizeSetup(data) {
+  if (!data || typeof data !== "object") return null
+  const s = JSON.parse(JSON.stringify(data))
+  if (!s.setup || Array.isArray(s.setup)) s.setup = {} // an empty Lua table arrives as []
+  s.auto = s.auto || {}
+  s.current = s.current || {}
+  s.choices = s.choices || {}
+  return s
+}
+async function loadCarSetup() {
+  try {
+    carSetup.value = normalizeSetup(await callGE("getCarSetup"))
+  } catch (err) {
+    console.error("ColdStart Sim car setup:", err)
+  }
+}
+// a different car (or none): fetch its setup
+watch(() => (car.value ? `${car.value.model}/${car.value.config}` : null), id => {
+  if (id) loadCarSetup()
+  else carSetup.value = null
+}, { immediate: true })
+
+function setupValue(key) {
+  const setup = carSetup.value?.setup || {}
+  if (key === "effects") return setup.effects !== false
+  if (key === "heaterWatts") return setup.heaterWatts || 750
+  return setup[key] !== undefined ? setup[key] : "auto"
+}
+// the choices, with "Auto" showing what auto means for this car
+function setupItems(key, autoText) {
+  return (carSetup.value?.choices?.[key] || []).map(item =>
+    item.value === "auto" ? { value: "auto", label: `Auto (${autoText})` } : item)
+}
+async function changeSetup(key, value) {
+  const setup = { ...(carSetup.value?.setup || {}) }
+  if (value === "auto" || (key === "effects" && value === true)) delete setup[key]
+  else setup[key] = value
+  carSetup.value = { ...carSetup.value, setup } // show it straight away
+  try {
+    const updated = normalizeSetup(await callGE("setCarSetup", { [key]: value }))
+    if (updated) carSetup.value = updated
+  } catch (err) {
+    console.error("ColdStart Sim car setup: could not save", err)
+  }
+}
+async function resetSetup() {
+  try {
+    const updated = normalizeSetup(await callGE("resetCarSetup"))
+    if (updated) carSetup.value = updated
+  } catch (err) {
+    console.error(err)
+  }
 }
 
 // Lua sends empty tables as [] and keeps numbers; make the shapes the template expects

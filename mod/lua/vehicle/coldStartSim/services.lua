@@ -3,6 +3,8 @@
 --                oil toward outside + 30 °C (750 W against ~25 W/K of heat loss, models/soak.lua)
 --   charger      a mains battery charger: 10 A into the battery while the engine is off
 --   jumpLeads    jump leads to a healthy donor battery (models/battery.lua connectJumpLeads)
+--   batteryWarmer a battery warmer pad (0.9.0): holds the battery ~25 °C above outside air
+--                (sim.lua warmerRiseC), so it keeps its cranking power in deep cold
 -- Real block heaters and chargers take hours; the settings' service speed (default x10) speeds
 -- them up. Drive off with something still connected and it comes loose, with a warning.
 -- Toggled from keybinds (lua/ge/extensions/core/input/actions/coldStartSim.json), the settings
@@ -15,11 +17,13 @@ local soak = require("coldStartSim/models/soak")
 
 local exp, max = math.exp, math.max
 
-M.names = {"blockHeater", "charger", "jumpLeads"}
-M.labels = {blockHeater = "block heater", charger = "battery charger", jumpLeads = "jump leads"}
+M.names = {"blockHeater", "charger", "jumpLeads", "batteryWarmer"}
+M.labels = {blockHeater = "block heater", charger = "battery charger", jumpLeads = "jump leads",
+  batteryWarmer = "battery warmer"}
 
 M.config = {serviceSpeed = 10, heaterWatts = 750, chargerA = 10}
-M.state = {blockHeater = false, charger = false, jumpLeads = false, droveOff = nil, droveOffSeconds = 0}
+M.state = {blockHeater = false, charger = false, jumpLeads = false, batteryWarmer = false, droveOff = nil,
+  droveOffSeconds = 0}
 
 local driveOffKmh = 3
 local droveOffShowSeconds = 6
@@ -41,7 +45,7 @@ function M.init(engineHandle, notifier)
   handle = engineHandle and engineHandle.isCombustion and engineHandle or nil
   notifyFn = notifier
   local state = M.state
-  state.blockHeater, state.charger, state.jumpLeads = false, false, false
+  state.blockHeater, state.charger, state.jumpLeads, state.batteryWarmer = false, false, false, false
   state.droveOff, state.droveOffSeconds = nil, 0
 end
 
@@ -72,15 +76,16 @@ end
 
 function M.any()
   local state = M.state
-  return state.blockHeater or state.charger or state.jumpLeads
+  return state.blockHeater or state.charger or state.jumpLeads or state.batteryWarmer
 end
 
--- What the battery sees this update: {chargerA, chargeSpeed, jump}.
-local electrical = {chargerA = 0, chargeSpeed = 1, jump = false}
+-- What the battery sees this update: {chargerA, chargeSpeed, jump, warmer}.
+local electrical = {chargerA = 0, chargeSpeed = 1, jump = false, warmer = false}
 function M.electrical(running)
   electrical.chargerA = (M.state.charger and not running) and M.config.chargerA or 0
   electrical.chargeSpeed = M.config.serviceSpeed
   electrical.jump = M.state.jumpLeads
+  electrical.warmer = M.state.batteryWarmer
   return electrical
 end
 

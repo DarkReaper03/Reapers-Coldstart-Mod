@@ -16,7 +16,7 @@
 
 local M = {}
 
-local modVersion = "0.8.1" -- keep in sync with coldStartSim_main.version (GE warns on mismatch)
+local modVersion = "0.9.0" -- keep in sync with coldStartSim_main.version (GE warns on mismatch)
 local logTag = "coldStartSim"
 local streamName = "coldStartSim"
 local streamInterval = 1 / 15 -- seconds between HUD updates
@@ -32,6 +32,7 @@ local coldstart = require("coldStartSim/coldstart")
 local alerts = require("coldStartSim/alerts")
 local services = require("coldStartSim/services")
 local soakModel = require("coldStartSim/models/soak")
+local carsetup = require("coldStartSim/carsetup")
 
 local engines = {}
 local profile = nil
@@ -46,10 +47,19 @@ local snapshots = {sinceAttach = 0, running = 0, attachSent = false, runningSent
 local memoryTimer = 0
 local memoryInterval = 10 -- seconds between soak-memory snapshots sent to GE
 local updateMemory -- (defined below, used by attach's reset of the timer)
+local carSetup = {} -- the player's setup for this car (carsetup.lua, 0.9.0), sent by GE after attaching
 
 -- Runs `command` (a call on coldStartSim_main) in GE Lua, if the GE side is loaded.
 local function callGE(command)
   obj:queueGameEngineLua("if coldStartSim_main then coldStartSim_main." .. command .. " end")
+end
+
+-- A message to the player in this car (and the log).
+local function notify(text)
+  log("I", logTag, text)
+  if type(guihooks) == "table" and type(guihooks.message) == "function" then
+    pcall(guihooks.message, text, 6, "coldStartSim.services")
+  end
 end
 
 local function attach()
@@ -59,15 +69,12 @@ local function attach()
   if profile.kind == "none" then
     return false -- trailers, props: nothing to simulate
   end
-  local params = sim.init(profile, adapter.ambientC())
+  carSetup = {}
+  local params = sim.init(profile, adapter.ambientC(), carSetup)
   coldstart.init(profile.primaryIndex and engines[profile.primaryIndex] or nil, profile, params)
   alerts.init()
-  services.init(profile.primaryIndex and engines[profile.primaryIndex] or nil, function(text)
-    log("I", logTag, text)
-    if type(guihooks) == "table" and type(guihooks.message) == "function" then
-      pcall(guihooks.message, text, 6, "coldStartSim.services")
-    end
-  end)
+  services.init(profile.primaryIndex and engines[profile.primaryIndex] or nil, notify)
+  services.configure({heaterWatts = params.heaterWatts})
   memoryTimer = 0
 
   -- register first: GE ignores probe results from vehicles it hasn't seen attach
@@ -145,6 +152,13 @@ local function buildPacket(engine)
   packet.heater = plugged.blockHeater or nil
   packet.charger = plugged.charger or nil
   packet.jump = plugged.jumpLeads or nil
+  packet.warmer = plugged.batteryWarmer or nil
+  -- the car's setup (0.9.0): what the models use now, and the starting fluid still in the intake
+  local params = sim.getParams()
+  if params then packet.fuel = params.fuel or packet.fuel end
+  packet.battCCA = sim.state.batteryCCA
+  packet.ether = coldstart.state.etherSeconds > 0 and math.ceil(coldstart.state.etherSeconds) or nil
+  if coldstart.carEffectsOn() then packet.carEffects = nil else packet.carEffects = false end -- (not `and false or nil`)
   return packet
 end
 
@@ -352,6 +366,20 @@ local function applySettings(settings)
   end
 end
 
+-- The player's setup for this car (0.9.0, carsetup.lua), from GE: after attaching (announce nil) and
+-- when it is changed in the settings screen (announce true: say what changed). The models get the new
+-- parameters and keep their state (sim.reconfigure, coldstart.setParams).
+local function applyCarSetup(setup, announce)
+  if failed or not profile then return end
+  carSetup = carsetup.sanitize(setup)
+  local params = sim.reconfigure(profile, carSetup)
+  if not params then return end
+  coldstart.setParams(profile, params)
+  services.configure({heaterWatts = params.heaterWatts})
+  local text = "Car setup: " .. carsetup.describe(carSetup)
+  if announce then notify(text) else log("I", logTag, text) end
+end
+
 -- GE asks after the game found a physics instability on this vehicle: what the mod had written to
 -- the engine at that moment goes to the compatibility report as the probe finding "instability".
 local function reportInstability()
@@ -383,11 +411,38 @@ M.reportInstability = reportInstability
 M.ackWarnings = function(id) alerts.ack(id) end -- id nil: all of them (HUD lights, keybind)
 M.restoreState = restoreState -- soak memory, from GE
 
+M.applyCarSetup = applyCarSetup -- per-car setup, from GE
+M.getCarSetup = function() return carSetup end
+
 -- Keybinds and the settings screen: coldStartSim.action("blockHeater") toggles, (name, true/false)
--- sets. "blockHeater", "charger", "jumpLeads", "ackWarnings".
+-- sets: "blockHeater", "charger", "jumpLeads", "batteryWarmer". One-off actions: "ackWarnings",
+-- "startingFluid", "glowCycle", "newBattery" (0.9.0).
 M.action = function(name, on)
+  if failed or not profile then return nil end
   if name == "ackWarnings" then
     alerts.ack(nil)
+    return true
+  elseif name == "startingFluid" then
+    local ok, text = coldstart.sprayStartingFluid(sim.state)
+    notify(text)
+    return ok
+  elseif name == "glowCycle" then
+    local seconds = sim.glowCycle()
+    if seconds then
+      notify(seconds > 0 and string.format("Glow plugs: preheating again (%d s). Wait for the light.", math.ceil(seconds))
+        or "Glow plugs: not needed at this temperature.")
+    else
+      notify(sim.getParams() and sim.getParams().glow and "Glow plugs: turn the key to ON first (not running, not cranking)."
+        or "Glow plugs: this engine has none.")
+    end
+    return seconds ~= nil
+  elseif name == "newBattery" then
+    if (electricsState.airspeed or 0) > 1 then
+      notify("New battery: stop the car first.")
+      return false
+    end
+    sim.newBattery()
+    notify("New battery fitted: fully charged (at the temperature the old one had).")
     return true
   end
   return services.set(name, on)

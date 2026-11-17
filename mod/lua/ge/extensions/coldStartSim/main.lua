@@ -19,8 +19,10 @@ local M = {}
 
 local presets = require("coldStartSim/presets")
 local settingsModel = require("coldStartSim/settings")
+local carsetup = require("coldStartSim/carsetup")
+local defaults = require("coldStartSim/models/defaults")
 
-M.version = "0.8.1" -- keep in sync with modVersion in lua/vehicle/extensions/auto/coldStartSim.lua
+M.version = "0.9.0" -- keep in sync with modVersion in lua/vehicle/extensions/auto/coldStartSim.lua
 
 local logTag = "coldStartSim"
 local reportDir = "settings/coldStartSim/debug/"
@@ -268,8 +270,96 @@ local function restoreMemory(vehicle, key)
     "if coldStartSim and coldStartSim.restoreState then coldStartSim.restoreState(%s, %d) end", serialize(entry.state), elapsed))
 end
 
+----------------------------------------------------------------------------------------------------
+-- Per-car setup (0.9.0, lua/common/coldStartSim/carsetup.lua): the player's oil grade, battery,
+-- voltage, fuel, glow plugs, block-heater power and effects switch for one model/config, saved in
+-- settings/coldStartSim/vehicles.json and sent to the car whenever it spawns. The settings screen's
+-- Car tab calls getCarSetup / setCarSetup / resetCarSetup for the car the player sits in.
+----------------------------------------------------------------------------------------------------
+
+local carSetupPath = "settings/coldStartSim/vehicles.json"
+local carSetups = nil -- [report key] = setup
+
+local function loadCarSetups()
+  local data = jsonReadFile(carSetupPath)
+  carSetups = {}
+  if type(data) ~= "table" then return end
+  for key, setup in pairs(data) do
+    local clean = carsetup.sanitize(setup)
+    if type(key) == "string" and not carsetup.isEmpty(clean) then carSetups[key] = clean end
+  end
+end
+
+local function saveCarSetups()
+  local ok, err = pcall(jsonWriteFile, carSetupPath, carSetups, true)
+  if not ok then log("W", logTag, "Could not save the car setups: " .. tostring(err)) end
+end
+
+local function sendCarSetup(vehicle, setup, announce)
+  if not vehicle then return end
+  vehicle:queueLuaCommand(string.format("if coldStartSim and coldStartSim.applyCarSetup then coldStartSim.applyCarSetup(%s, %s) end",
+    serialize(setup or {}), tostring(announce == true)))
+end
+
+-- The player's car: its vehicle object, report key and profile (nil if none attached).
+local function playerCar()
+  local vehicle = getPlayerVehicle(0)
+  if not vehicle then return nil end
+  local key = attached[vehicle:getId()]
+  local entry = key and report and report.vehicles[key]
+  return vehicle, key, entry and entry.profile
+end
+
+-- For the settings screen: {key, name, kind, setup, auto = {...}, choices}. auto holds what the car
+-- runs with no setup (from its engine and any jbeam "coldStartSim" section). nil without a car.
+local function getCarSetup()
+  if not carSetups then loadCarSetups() end
+  local _, key, profile = playerCar()
+  if not key or type(profile) ~= "table" then return nil end
+  local auto = defaults.forProfile(profile)
+  local setup = carSetups[key] or {}
+  local now = defaults.forProfile(profile, setup)
+  return {
+    key = key, name = profile.name, kind = profile.kind, setup = setup, choices = carsetup.choices,
+    auto = {
+      fuel = auto.fuel, oilGrade = auto.oil.grade, cca = math.floor(auto.battery.cca + 0.5),
+      capacityAh = math.floor(auto.battery.capacityAh + 0.5), voltage = auto.voltage, glowPlugs = auto.glow ~= nil,
+      heaterWatts = auto.heaterWatts,
+    },
+    current = {
+      fuel = now.fuel, oilGrade = now.oil.grade, cca = math.floor(now.battery.cca + 0.5),
+      capacityAh = math.floor(now.battery.capacityAh + 0.5), voltage = now.voltage, glowPlugs = now.glow ~= nil,
+      heaterWatts = now.heaterWatts, effects = now.effects,
+    },
+  }
+end
+
+-- Changes the player's car's setup: setCarSetup({oilGrade = "0W-20"}); "auto" puts one value back.
+-- Saved, applied to the car straight away (an oil change, a new battery size...). Returns getCarSetup().
+local function setCarSetup(partial)
+  if not carSetups then loadCarSetups() end
+  local vehicle, key = playerCar()
+  if not key then return nil end
+  local setup = carsetup.merge(carSetups[key], partial)
+  carSetups[key] = not carsetup.isEmpty(setup) and setup or nil
+  saveCarSetups()
+  sendCarSetup(vehicle, setup, true)
+  return getCarSetup()
+end
+
+local function resetCarSetup()
+  if not carSetups then loadCarSetups() end
+  local vehicle, key = playerCar()
+  if not key then return nil end
+  carSetups[key] = nil
+  saveCarSetups()
+  sendCarSetup(vehicle, {}, true)
+  return getCarSetup()
+end
+
 -- Keybinds and the settings screen: coldStartSim_main.vehicleAction("blockHeater") on the player's
--- car ("blockHeater", "charger", "jumpLeads", "ackWarnings").
+-- car ("blockHeater", "charger", "jumpLeads", "batteryWarmer", "ackWarnings", "startingFluid",
+-- "glowCycle", "newBattery").
 local function vehicleAction(name)
   local vehicle = getPlayerVehicle(0)
   if not vehicle then return false end
@@ -646,6 +736,14 @@ local function vehicleAttached(vehicleId, profile, reannounced)
   report.vehicles[key] = entry
   dirty = true
 
+  -- the player's setup for this model/config (0.9.0), before the soak memory so the restored battery
+  -- state lands on the right battery; also after Ctrl+L, since the car may have missed a change.
+  -- Compatibility-test vehicles run on their auto values.
+  if not test then
+    if not carSetups then loadCarSetups() end
+    if carSetups[key] then sendCarSetup(getObjectByID(vehicleId), carSetups[key], false) end
+  end
+
   -- a fresh spawn (not the re-announce after Ctrl+L, not a compatibility-test vehicle) starts where
   -- this model/config was left
   if not reannounced and not test then
@@ -798,6 +896,9 @@ M.getSettingsSchema = getSettingsSchema
 M.requestSettings = requestSettings
 M.vehicleState = vehicleState
 M.vehicleAction = vehicleAction
+M.getCarSetup = getCarSetup
+M.setCarSetup = setCarSetup
+M.resetCarSetup = resetCarSetup
 M.getAttachedVehicles = function() return attached end
 
 -- hooks

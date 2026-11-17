@@ -113,7 +113,9 @@ end
 -- engineRPM drives the alternator; envC is the air temperature around the battery.
 -- chargerA: a mains battery charger's output (0 = none); it works like a small alternator.
 -- chargeSpeed: game-time speed-up for the charger (the settings' service speed), SOC only.
-function Battery:update(dt, loadA, engineRPM, envC, chargerA, chargeSpeed)
+-- envSpeed: how much faster than normal the battery follows envC (a battery warmer at the service
+-- speed, 0.9.0); default 1.
+function Battery:update(dt, loadA, engineRPM, envC, chargerA, chargeSpeed, envSpeed)
   loadA = max(loadA or 0, 0)
   local ocv = self:openCircuitVoltage()
   local r = self:internalResistance()
@@ -150,7 +152,8 @@ function Battery:update(dt, loadA, engineRPM, envC, chargerA, chargeSpeed)
     local amps = batteryA > 0 and batteryA or batteryA * 0.9 * ((chargerA or 0) > 0 and (chargeSpeed or 1) or 1)
     self.soc = min(max(self.soc - amps * dt / (self:usableCapacityAh() * 3600), 0), 1)
     if envC then
-      self.tempC = self.tempC + (envC - self.tempC) * (1 - exp(-dt / 7200)) -- two-hour time constant
+      -- two-hour time constant (soak.lua tauSeconds.battery), faster under a warmer at service speed
+      self.tempC = self.tempC + (envC - self.tempC) * (1 - exp(-dt * max(envSpeed or 1, 1) / 7200))
     end
   end
 

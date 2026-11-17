@@ -96,7 +96,7 @@ function M.update(dt, s, engine, e, start, ambientC, seated, running, plug)
   x.batteryFlat = start and start.batteryFlat or nil
   x.batteryFrozen = start and start.batteryFrozen or nil
   x.ambientC, x.intakeC = ambientC, s.intakeC
-  x.pluggedIn = plug ~= nil and (plug.blockHeater or plug.charger or plug.jumpLeads) or nil
+  x.pluggedIn = plug ~= nil and (plug.blockHeater or plug.charger or plug.jumpLeads or plug.batteryWarmer) or nil
   x.droveOff = plug ~= nil and plug.droveOff or nil
 
   evaluator:update(dt, x)
