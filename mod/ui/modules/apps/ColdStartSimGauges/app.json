@@ -1,0 +1,24 @@
+{
+  "domElement": "<cold-start-sim-gauges></cold-start-sim-gauges>",
+  "name": "ColdStart Sim - Gauges",
+  "types": [
+    "ui.apps.categories.vehicle_info"
+  ],
+  "description": "Cold-start gauges from the ColdStart Sim mod: battery voltage and charge, oil pressure, coolant, oil, outside, cabin and intake air temperatures, diesel glow plugs, rpm and boost.",
+  "css": {
+    "left": "0px",
+    "top": "120px",
+    "width": "340px",
+    "height": "190px",
+    "min-width": "200px",
+    "min-height": "110px"
+  },
+  "author": "ColdStart Sim",
+  "version": "0.8.1",
+  "preserveAspectRatio": false,
+  "directive": "coldStartSimGauges",
+  "vue": true,
+  "category": "Dashboard",
+  "isAuxiliary": false,
+  "interactive": "yes"
+}

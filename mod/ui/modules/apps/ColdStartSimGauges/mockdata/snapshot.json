@@ -1,0 +1,36 @@
+{
+  "name": "Snapshot",
+  "description": "Example ColdStart Sim stream: a gasoline pickup a minute after a -12 °C cold start.",
+  "data": [
+    {
+      "coldStartSim": {
+        "v": 2, "mod": "0.2.0", "phase": 2,
+        "name": "D-Series", "model": "pickup", "config": "example",
+        "kind": "ice", "fuel": "gasoline", "engines": 1, "turbo": false, "sysV": 12,
+        "oat": -12.4, "baro": 101.3, "ign": 2, "speed": 0,
+        "rpm": 1120, "cranking": false, "running": true,
+        "thermals": "stock", "coolant": 14.2, "oil": 6.8, "block": 9.5, "egt": 182,
+        "thermostat": 90, "fan": false, "lube": 1, "oilLevel": 1.22,
+        "oilP": 468, "oilPRelief": 480, "visc": 690, "oilGrade": "5W-30", "oilTooThick": false,
+        "battV": 14.6, "battSoc": 0.87, "battA": -9.5, "battT": -11.0, "battFreeze": -50,
+        "altA": 31, "loadA": 21.5, "crankMinV": 9.9, "crankPeakA": 640,
+        "cabin": -6.5, "blower": 1, "iat": -10.8
+      }
+    },
+    {
+      "coldStartSim": {
+        "v": 2, "mod": "0.2.0", "phase": 2,
+        "name": "D-Series", "model": "pickup", "config": "example",
+        "kind": "ice", "fuel": "gasoline", "engines": 1, "turbo": false, "sysV": 12,
+        "oat": -12.4, "baro": 101.3, "ign": 2, "speed": 0,
+        "rpm": 1104, "cranking": false, "running": true,
+        "thermals": "stock", "coolant": 14.6, "oil": 7.1, "block": 9.8, "egt": 185,
+        "thermostat": 90, "fan": false, "lube": 1, "oilLevel": 1.22,
+        "oilP": 467, "oilPRelief": 480, "visc": 675, "oilGrade": "5W-30", "oilTooThick": false,
+        "battV": 14.6, "battSoc": 0.87, "battA": -9.4, "battT": -11.0, "battFreeze": -50,
+        "altA": 31, "loadA": 21.5, "crankMinV": 9.9, "crankPeakA": 640,
+        "cabin": -6.3, "blower": 1, "iat": -10.7
+      }
+    }
+  ]
+}

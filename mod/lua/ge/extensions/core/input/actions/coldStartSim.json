@@ -1,0 +1,6 @@
+{
+"coldStartSim_blockHeater"  :{"cat":"vehicle", "order": 90, "ctx": "vlua", "onDown": "if coldStartSim and coldStartSim.action then coldStartSim.action('blockHeater') end", "title": "ColdStart Sim: block heater", "desc": "Plug the engine block heater in or out (ColdStart Sim mod)" },
+"coldStartSim_charger"      :{"cat":"vehicle", "order": 91, "ctx": "vlua", "onDown": "if coldStartSim and coldStartSim.action then coldStartSim.action('charger') end", "title": "ColdStart Sim: battery charger", "desc": "Connect or disconnect a battery charger (ColdStart Sim mod)" },
+"coldStartSim_jumpLeads"    :{"cat":"vehicle", "order": 92, "ctx": "vlua", "onDown": "if coldStartSim and coldStartSim.action then coldStartSim.action('jumpLeads') end", "title": "ColdStart Sim: jump leads", "desc": "Connect or disconnect jump leads from a healthy battery (ColdStart Sim mod)" },
+"coldStartSim_ackWarnings"  :{"cat":"vehicle", "order": 93, "ctx": "vlua", "onDown": "if coldStartSim and coldStartSim.action then coldStartSim.action('ackWarnings') end", "title": "ColdStart Sim: acknowledge warnings", "desc": "Acknowledge the lit ColdStart Sim warning lights (they stay lit, dimmed, and stop alerting)" }
+}

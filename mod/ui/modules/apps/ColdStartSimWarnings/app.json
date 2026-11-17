@@ -1,0 +1,24 @@
+{
+  "domElement": "<cold-start-sim-warnings></cold-start-sim-warnings>",
+  "name": "ColdStart Sim - Warning Lights",
+  "types": [
+    "ui.apps.categories.vehicle_info"
+  ],
+  "description": "Dashboard warning lights from the ColdStart Sim mod: oil pressure, oil temperature and level, engine temperature, cold engine, battery and charging, diesel glow plugs, starter overheating, ice risk and hot intake air. Click a light to acknowledge it.",
+  "css": {
+    "left": "0px",
+    "top": "320px",
+    "width": "340px",
+    "height": "74px",
+    "min-width": "120px",
+    "min-height": "40px"
+  },
+  "author": "ColdStart Sim",
+  "version": "0.8.1",
+  "preserveAspectRatio": false,
+  "directive": "coldStartSimWarnings",
+  "vue": true,
+  "category": "Dashboard",
+  "isAuxiliary": false,
+  "interactive": "yes"
+}
