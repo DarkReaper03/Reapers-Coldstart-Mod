@@ -13,7 +13,10 @@
 - **Cold cranking:** thick oil and a cold battery slow the starter. A start can fail because the engine turns too slowly to fire, a diesel's glow plugs aren't ready, or the battery browns out. A battery that's too flat only clicks.
 - **Cold running:** fast idle until the engine warms up, a cold engine that drags and stumbles for its first half minute, and a starter that overheats if you crank it too long.
 - **Warning lights and messages:** 11 dashboard lamps cover 20 warnings: oil pressure, revving on cold oil, oil and coolant temperature, oil level, battery voltage, charge and charging, weak battery, glow plugs, starter overheating, ice risk and hot intake air. Click a lamp to acknowledge it.
-- **Plug things in:** engine block heater, battery charger and jump leads, from the pause menu or keybinds. Drive off with them still connected and they come loose.
+- **Plug things in:** engine block heater, battery charger, jump leads and a battery warmer, from the pause menu or keybinds. Drive off with them still connected and they come loose.
+- **Starting aids:** starting fluid (ether) lets an engine that cranks too slowly fire for a few seconds; a glow-plug cycle re-heats a diesel's plugs once they've cooled.
+- **Garage:** change the oil (0W-20 synthetic for arctic cold; a thick 20W-50 drags in winter) and fit a new battery.
+- **Per-car setup:** set oil grade, battery size, 12/24 V, fuel type, glow plugs, block-heater power and the cold-start effects for one car, saved for that model and config. Ideal for modded cars whose detected values are off.
 - **Climate presets:** Mild winter (−5 °C), Cold (−15 °C), Arctic (−30 °C), Siberian (−45 °C) and Desert heat (+38 °C) on any map, or keep the map's own temperature.
 - **Cars remember** how warm and charged you left them, and cool down for the time that has passed.
 - **Realism presets** from Display only to Hardcore, and you can switch each effect on or off.
@@ -29,9 +32,9 @@ To update, replace the old `coldstartsim.zip`. Your settings are kept.
 
 ## Getting started
 
-- **Settings and your car's plug-ins:** pause menu → **Mods → ColdStart Sim** (Car, Simulation, Warnings, Gauges, Lights, About).
+- **Settings and your car:** pause menu → **Mods → ColdStart Sim** (Car, Simulation, Warnings, Gauges, Lights, About). The Car tab has the plug-ins, starting aids, garage and this car's setup.
 - **HUD apps:** pause menu → System → HUD Apps → edit your layout → Add app → **ColdStart Sim - Gauges** and **ColdStart Sim - Warning Lights**.
-- **Keybinds** (unbound by default): Options → Controls → Vehicle → "ColdStart Sim: block heater / battery charger / jump leads / acknowledge warnings".
+- **Keybinds** (unbound by default): Options → Controls → Vehicle → "ColdStart Sim: block heater / battery charger / jump leads / battery warmer / starting fluid / glow-plug cycle / acknowledge warnings".
 - **Try it:** pick a climate preset, or set the temperature under Environment in the pause menu. Switch the engine off and give it a cold start. For a challenge, try −20 °C with a 30 % battery.
 
 ## Realism presets
@@ -47,8 +50,10 @@ To update, replace the old `coldstartsim.zip`. Your settings are kept.
 
 With 5W-30 oil and a full battery, a cold-soaked gasoline car still starts down to about −35 °C. Below about −40 °C it turns over, but too slowly to fire. At −50 °C the engine needs warming to about −30 °C first, because the battery is weaker there too:
 
-- **Block heater:** plug it in from the Car tab or the keybind. At −50 °C it needs 10–15 minutes at the default service speed. You can speed it up in Settings → Simulation → Service speed.
-- **Battery charger:** for a battery that has run down. A battery only clicks when it's actually low: below about 30 % charge at −20 °C, or about 50 % at −50 °C.
+- **Block heater:** plug it in from the Car tab or the keybind. At −50 °C it needs 10–15 minutes at the default service speed. You can speed it up in Settings → Simulation → Service speed, or fit a stronger heater (up to 1500 W) in the car's setup.
+- **Starting fluid:** spray it, then crank within 15 s. The engine fires at a much slower crank. Don't use it on a diesel with hot glow plugs.
+- **0W-20 oil:** an oil change to arctic synthetic cranks like about 5 °C warmer. It's worth a few degrees, not a free −50 °C start.
+- **Battery warmer and charger:** a warm battery cranks harder, and a charged one doesn't click. A battery only clicks when it's actually low: below about 30 % charge at −20 °C, or about 50 % at −50 °C.
 - **Jump leads:** a donor battery for a flat one.
 - **Casual:** if you just want to drive.
 
@@ -68,7 +73,7 @@ With 5W-30 oil and a full battery, a cold-soaked gasoline car still starts down 
 
 ### For car modders (optional)
 
-Every car gets sensible values worked out from its engine. To set them yourself, add a `coldStartSim` section to one of your car's parts (any part that's always installed, the engine for example). Your car still works without this mod, which just ignores the section:
+Every car gets sensible values worked out from its engine. To set them yourself, add a `coldStartSim` section to one of your car's parts (any part that's always installed, the engine for example). Your car still works without this mod, which just ignores the section. Players can still change these for their own car in the Car tab, and their choice wins:
 
 ```json
 "coldStartSim": {
@@ -98,7 +103,8 @@ Open the console with `~` (game-engine context):
 
 - `coldStartSim_main.runColdTest()`: cold-starts one of each kind of base vehicle at −20 °C (`runColdTest(-35)` for another temperature) and records the results.
 - `coldStartSim_main.setPreset("casual")`: `display`, `casual`, `realistic` or `hardcore`.
-- `coldStartSim_main.vehicleAction("blockHeater")`: also `"charger"`, `"jumpLeads"` or `"ackWarnings"`, for the car you're in.
+- `coldStartSim_main.vehicleAction("blockHeater")`: also `"charger"`, `"jumpLeads"`, `"batteryWarmer"`, `"startingFluid"`, `"glowCycle"`, `"newBattery"` or `"ackWarnings"`, for the car you're in.
+- `coldStartSim_main.setCarSetup({oilGrade = "0W-20", battery = "heavy"})`: the car you're in (`"auto"` puts one value back). `resetCarSetup()` clears it.
 
 ## Reporting a problem
 
